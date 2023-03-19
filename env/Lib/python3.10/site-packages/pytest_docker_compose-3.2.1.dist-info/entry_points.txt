@@ -1,0 +1,3 @@
+[pytest11]
+docker_compose = pytest_docker_compose:plugin
+

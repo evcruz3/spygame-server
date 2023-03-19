@@ -1,0 +1,7 @@
+-r base.txt
+pytest==7.1.2
+pytest-cov==3.0.0 
+pytest-xdist==2.5.0
+pytest-docker-compose==3.2.1
+pytest-lazy-fixture
+pyjwt
