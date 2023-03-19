@@ -6,7 +6,6 @@ from beanie.operators import Set
 
 from pydantic import BaseModel, Field, EmailStr
 from typing import List
-from app.models.date_deleted import DateDeleted
 from datetime import datetime
 from ..models.pyObject import PyObjectId
 from ..models.event_player import PlayerDocument
