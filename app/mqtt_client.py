@@ -28,6 +28,7 @@ class MQTTClient:
         self.running = True
         mqtt_thread = threading.Thread(target=self.client.loop_forever)
         mqtt_thread.start()
+        print("MQTT Client started running")
 
     def stop(self):
         self.running = False

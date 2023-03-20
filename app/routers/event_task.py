@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends
-from beanie.odm.operators import AddToSet, Pull
+from beanie.odm.operators.update.array import AddToSet, Pull
 from datetime import datetime
 
 from app.models.event_player import PlayerDocument

@@ -1,49 +1,48 @@
+import asyncio
 import random
 import string
-import threading
-import time
 from datetime import datetime, timedelta
-from typing import List
 
-from models.event_player import PlayerDocument
-from models.event_task import TaskDocument, TaskTypeEnum, ParticipantStatusEnum, TaskStatusEnum
-from models.game_event import GameEventDocument
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from beanie import UpdateOne
+from app.models.event_player import PlayerDocument
+from app.models.event_task import TaskDocument, TaskTypeEnum, ParticipantStatusEnum, TaskStatusEnum
+from app.models.game_event import GameEventDocument
 
-class TaskCreator:
+CREATE_TASK_INTERVAL = 10 #default is 300 seconds / 5 minutes
+
+class TaskManager:
     def __init__(self, mqtt_client):
         self.mqtt_client = mqtt_client
 
     async def create_task(self):
         # Get a random event that is currently ongoing
         now = datetime.utcnow()
-        events = GameEventDocument.find(
+        events = await GameEventDocument.find(
             {"start": {"$lt": now}, "end": {"$gt": now}}
-        ).toList()
-        # if not event:
-        #     print("No ongoing events found.")
-        #     return
+        ).to_list()
+
         
+        if len(events) == 0:
+            print("No ongoing events found.")
+            return
+
         for event in events:
             # Get all player ids that are not part of any task within the task's time range and of that event
             start_time = now
             end_time = now + timedelta(minutes=20)
             join_until = now + timedelta(minutes=10)
             player_ids_in_tasks = set()
-            currently_running_event_tasks = TaskDocument.find(
+            currently_running_event_tasks = await TaskDocument.find(
                 {"start_time": {"$lt": end_time}, "end_time": {"$gt": start_time}, "event_code": event["code"]}
-            )
+            ).to_list()
             for task in currently_running_event_tasks:
                 for participant in task["participants"]:
                     player_ids_in_tasks.add(participant["player"])
 
-            available_players = list(
-                PlayerDocument.find(
+            available_players = await PlayerDocument.find(
                     {"event_code": event["code"], "_id": {"$nin": list(player_ids_in_tasks)}, 'lives_left' : {"$gt": 0}},
                     {"_id": 1},
-                )
-            )
+                ).to_list()
+            
             if len(available_players) < 2:
                 print(f"Not enough available players to create task for event {event.code}.")
                 return
@@ -73,7 +72,7 @@ class TaskCreator:
                 end_time=end_time,
                 task_code=task_code,
                 join_until=join_until,
-                status=TaskStatusEnum.WAITING_FOR_PLAYERS
+                status=TaskStatusEnum.WAITING_FOR_PARTICIPANTS
             )
             result = await task.save()
 
@@ -118,10 +117,9 @@ class TaskCreator:
             for participant in task.participants:
                 if participant.status == ParticipantStatusEnum.WAITING:
                     mqtt_topic = f"/events/{task.event_code}/players/{participant.player}"
-                    update_operation = UpdateOne(
-                        {"_id": participant.player},
-                        {"$inc": {"lives_left": -1}, "status" : ParticipantStatusEnum.NOT_JOINED}
-                    )
+                    update_operation = {{"_id": participant.player},
+                        {"$inc": {"lives_left": -1}, "status" : ParticipantStatusEnum.NOT_JOINED}}
+                    
 
                     document = await PlayerDocument.update_one(update_operation)
                     message = {'message': 'You failed to join the task, you lose 1 life', "player_document" : document.json()}
@@ -138,17 +136,17 @@ class TaskCreator:
 
         # If task not manually finished by the player/s
         if task.status == TaskStatusEnum.ONGOING:
-
             # Set task status to FINISHED
             task.status = TaskStatusEnum.FINISHED
             await task.update(**task.dict())
 
-    def _run(self):
+    async def _run(self):
+        await asyncio.sleep(10)
         while True:
-            self.create_task()
-            time.sleep(300)  # Wait 5 minutes
+            await self.create_task()
+            await asyncio.sleep(CREATE_TASK_INTERVAL) 
 
     def run(self):
-        creator_thread = threading.Thread(target=self._run)
-        creator_thread.start()
+        loop = asyncio.get_event_loop()
+        loop.create_task(self._run())
 

@@ -1,0 +1,2 @@
+class PVDError(Exception):
+    pass

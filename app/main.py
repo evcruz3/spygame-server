@@ -1,14 +1,16 @@
+import asyncio
 from app.mqtt_client import MQTTClient
-from app.task_creator import TaskCreator
+from app.task_creator import TaskManager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database import init_db
 from .auth import idp
 
-# from .routers import (
-
-# )
+from .routers import (
+    event_player,
+    event_task
+)
 
 origins = [
     "https://localhost:3000",
@@ -45,12 +47,25 @@ idp.add_swagger_config(app)
 def root():
     return { "message": "Welcome to the Spy Game!" }
 
+app.include_router(event_task.router)
+app.include_router(event_player.router)
+
+
 # Create an instance of the MQTTClient class
 mqtt_client = MQTTClient()
 
-# Start the MQTT client loop in a separate thread
-mqtt_client.run()
+task_creator = TaskManager(mqtt_client)
 
-task_creator = TaskCreator(mqtt_client)
 
-task_creator.run()
+async def main():
+    # Start the MQTT client loop in a separate thread
+    mqtt_client.run()
+
+    # Start the task creator
+    task_creator.run()
+    task_1 = asyncio.create_task(do_first())
+    task_2 = asyncio.create_task(do_second())
+    await asyncio.wait([task_1, task_2])
+
+if __name__ == "__main__":
+    asyncio.run(main())
