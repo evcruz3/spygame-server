@@ -14,33 +14,41 @@ from typing import List, Optional, Set, Union
 
 class TaskTypeEnum(Enum):
     # CLUBS = "clubs" # Team Task
-    SPADE = "spade" # Everyone's safe
-    HEART = "heart" # Reveal if there's at least one killer
-    DIAMOND = "diamond" # Anonymous killer kills
+    SPADE = "spade" # Everyone's safe... for now
+    HEART = "heart" # There is a killer among you... Discuss and vote one to kill by the end of round
+    DIAMOND = "diamond" # Watch out! A killer may kill one of you by the end of round
 
-class ParticipantStatus(Enum):
+class ParticipantStatusEnum(Enum):
     WAITING = "waiting" # waiting for the player to join the task
     JOINED = "joined" # the player has joined the task
-    NOT_JOINED = "not joined" # the player was not able to joined
+    NOT_JOINED = "not joined" # the player was not able to join the task
+
+class TaskStatusEnum(Enum):
+    WAITING_FOR_PARTICIPANTS = "waiting for participants"
+    ONGOING = "ongoing"
+    FINISHED = "finished"
 
 class Participant(BaseModel):
     player: Union[PlayerDocument, PyObjectId] = Field(..., description="The player's id/profile")
-    status: ParticipantStatus = Field(..., description="the state of the player with respect to the task")
+    status: ParticipantStatusEnum = Field(..., description="the state of the player with respect to the task")
 
 class TaskBase(BaseModel):
     event_code: str = Field(..., description="The event code the user is part of")
     name: str = Field(..., description="The name of the the task")
     type: TaskTypeEnum = Field(..., description="The type of the task")
-    players: List[Participant] = Field(..., descrption="The joined players")
+    participants: List[Participant] = Field(..., descrption="The joined players")
     start_time: datetime = Field(..., description="The datetime the task shall commence")
     end_time: datetime = Field(..., description="The datetime the task shall end")
     task_code: str = Field(..., description="The task code")
+    join_until: datetime = Field(..., description="The datetime the participants must join the task")
+    status: TaskStatusEnum = Field(..., description="The current state of the task")
 
 class TaskDocument(Document, TaskBase):
     pass
 
     class Settings:
         name = "tasks"
+    
 
 # Create a new game event
 async def createTask(task_document: TaskDocument) -> TaskDocument:
