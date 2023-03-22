@@ -4,6 +4,7 @@ from datetime import datetime
 
 from app.models.event_player import PlayerDocument
 from app.models.event_task import TaskDocument, TaskTypeEnum, Participant, ParticipantStatusEnum
+from app.models.game_event import GameEventDocument
 
 router = APIRouter()
 
@@ -37,3 +38,11 @@ async def join_task(
         await task_document.update(operators=[AddToSet(TaskDocument.participants, participant.dict())])
         
         return {"message": "Player failed to join because the task is elready finished"}
+
+@router.post("/events")
+async def create_event(
+    event_document: GameEventDocument
+):
+    response = await GameEventDocument(**event_document.dict()).save()
+    return response
+

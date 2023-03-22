@@ -12,6 +12,11 @@ from .routers import (
     event_task
 )
 
+import logging
+
+logging.basicConfig()
+logging.getLogger('apscheduler').setLevel(logging.DEBUG)
+
 origins = [
     "https://localhost:3000",
     "https://localhost:3000/*",
@@ -50,22 +55,8 @@ def root():
 app.include_router(event_task.router)
 app.include_router(event_player.router)
 
+client = MQTTClient()
+task_creator = TaskManager(client)
 
-# Create an instance of the MQTTClient class
-mqtt_client = MQTTClient()
-
-task_creator = TaskManager(mqtt_client)
-
-
-async def main():
-    # Start the MQTT client loop in a separate thread
-    mqtt_client.run()
-
-    # Start the task creator
-    task_creator.run()
-    task_1 = asyncio.create_task(do_first())
-    task_2 = asyncio.create_task(do_second())
-    await asyncio.wait([task_1, task_2])
-
-if __name__ == "__main__":
-    asyncio.run(main())
+client.start()
+task_creator.run()

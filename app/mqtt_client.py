@@ -1,5 +1,5 @@
-import threading
 import paho.mqtt.client as mqtt
+import asyncio
 
 class MQTTClient:
     def __init__(self, host="localhost", port=1883):
@@ -7,7 +7,8 @@ class MQTTClient:
         self.client.on_message = self._on_message
         self.host = host
         self.port = port
-        self.topics = ["events/+", "events/+/tasks/+"]
+        # self.topics = ["events/+", "events/+/tasks/+"]
+        self.topics = []
         self.qos = 1
         self.running = False
 
@@ -19,18 +20,24 @@ class MQTTClient:
         self.client.subscribe(topic, qos=self.qos)
 
     def publish(self, topic, message):
+        print(f"topic: {topic}")
+        print(f"message: {message}")
         self.client.publish(topic, message)
 
-    def run(self):
+    def start(self):
+        print("Starting mqqt client")
         self.client.connect(self.host, self.port)
         for topic in self.topics:
             self.client.subscribe(topic, qos=self.qos)
         self.running = True
-        mqtt_thread = threading.Thread(target=self.client.loop_forever)
-        mqtt_thread.start()
-        print("MQTT Client started running")
+        # self.client.loop_forever()
+        loop = asyncio.get_running_loop()
+        loop.run_in_executor(None, self.client.loop_forever)
+        print("mqtt client started")
 
     def stop(self):
         self.running = False
         self.client.disconnect()
         self.client.loop_stop()
+
+
