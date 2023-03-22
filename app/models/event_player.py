@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import Optional
 
 from beanie import Document
@@ -7,6 +8,10 @@ from pydantic import BaseModel, Field, EmailStr
 from typing import List
 from datetime import datetime
 
+class PlayerRoleEnum(Enum):
+    NOT_SET = "not set"
+    ORDINARY = "ordinary"
+    SPY = "spy"
 
 # Institution Profile Model Class
 class PlayerBase(BaseModel):
@@ -14,6 +19,7 @@ class PlayerBase(BaseModel):
     name: str = Field(..., description="The name of the the player")
     lives_left: int = Field(..., description="Remaining number of lives left")
     state: str = Field(..., description="State of the player")
+    role: PlayerRoleEnum = Field(..., description="The role of the player in the event")
 
 class PlayerDocument(Document, PlayerBase):
     pass

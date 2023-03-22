@@ -1,4 +1,3 @@
-import asyncio
 from app.mqtt_client import MQTTClient
 from app.task_creator import TaskManager
 from fastapi import FastAPI
@@ -9,7 +8,6 @@ from .auth import idp
 
 from .routers import (
     event_player,
-    event_task
 )
 
 import logging
@@ -52,7 +50,6 @@ idp.add_swagger_config(app)
 def root():
     return { "message": "Welcome to the Spy Game!" }
 
-app.include_router(event_task.router)
 app.include_router(event_player.router)
 
 client = MQTTClient()

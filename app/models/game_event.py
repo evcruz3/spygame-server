@@ -22,6 +22,10 @@ class GameEventDocument(Document, GameEventBase):
     class Settings:
         name = "game_events"
 
+
+class JoiningPlayer(BaseModel):
+    name: str = Field(..., description="The name of the player who will join the event")
+
 # Create a new game event
 async def createEvent(event_document: GameEventDocument) -> GameEventDocument:
     institution_profile = await GameEventDocument(**event_document.dict()).save()
