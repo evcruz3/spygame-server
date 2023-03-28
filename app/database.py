@@ -4,7 +4,7 @@ from app.models.event_task import TaskDocument
 import motor.motor_asyncio
 from beanie import init_beanie
 
-from .config import get_settings
+from app.config import get_settings
 
 
 settings = get_settings()

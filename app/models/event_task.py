@@ -7,23 +7,23 @@ from beanie.operators import Set
 from pydantic import BaseModel, Field, EmailStr
 from typing import List
 from datetime import datetime
-from ..models.pyObject import PyObjectId
-from ..models.event_player import PlayerDocument
+from app.models.pyObject import PyObjectId
+from app.models.event_player import PlayerDocument
 from typing import List, Optional, Set, Union
 
 
-class TaskTypeEnum(Enum):
+class TaskTypeEnum(str, Enum):
     # CLUBS = "clubs" # Team Task
     SPADE = "spade" # Everyone's safe... for now
     HEART = "heart" # There is a killer among you... Discuss and vote one to kill by the end of round
     DIAMOND = "diamond" # Watch out! A killer may kill one of you by the end of round
 
-class ParticipantStatusEnum(Enum):
+class ParticipantStatusEnum(str, Enum):
     WAITING = "waiting" # waiting for the player to join the task
     JOINED = "joined" # the player has joined the task
     NOT_JOINED = "not joined" # the player was not able to join the task
 
-class TaskStatusEnum(Enum):
+class TaskStatusEnum(str, Enum):
     WAITING_FOR_PARTICIPANTS = "waiting for participants"
     ONGOING = "ongoing"
     FINISHED = "finished"

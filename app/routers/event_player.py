@@ -1,56 +1,71 @@
 from http.client import HTTPException
 from app.models.event_task import ParticipantStatusEnum, TaskDocument, TaskStatusEnum
 from app.models.pyObject import PyObjectId
-from fastapi import APIRouter
+from app.mqtt_client import MQTTClient
+from fastapi import APIRouter, Depends, status as status_code, HTTPException, Request
+from app.task_manager import TaskManager
+
 from typing import List
 from app.models.event_player import PlayerDocument, createPlayer
 from app.models.game_event import GameEventDocument, JoiningPlayer
 from datetime import datetime
-from beanie.odm.operators.update.array import AddToSet, Pull
 
-
-router = APIRouter()
+router = APIRouter(
+    prefix="",
+    tags=["Events"],
+)
 
 @router.post("/events")
 async def create_event(event_document: GameEventDocument):
     response = await GameEventDocument(**event_document.dict()).save()
     return response
 
-@router.post("/events/{event_code}/tasks/{task_code}")
+# Players may only join before the event
+@router.post("/events/{event_code}/tasks/{task_code}", response_model=TaskDocument)
 async def join_task(event_code: str, task_code: str, player: PlayerDocument):
+
+    task_creator = TaskManager(None)
+    print("Endpoint has been called by a client")
     now = datetime.utcnow()
 
-    event_document = await GameEventDocument.find_one({"event_code" : event_code, "start": {"$lt": now}})
+    event_document = await GameEventDocument.find_one({"code" : event_code, "start": {"$lt": now}})
 
     if event_document is not None:
 
         task_document = await TaskDocument.find_one({"event_code":event_code, "task_code" : task_code})
 
-        # Check if the given player is a participant for this task
-        participant = None
-        for p in task_document.participants:
-            if p.player == player.id:
-                participant = p
-                break
+        if task_document is not None:
+            if task_document.status != TaskStatusEnum.FINISHED:
+                # Check if the given player is a participant for this task
+                participant = None
+                index = -1
+                for (i, p) in enumerate(task_document.participants):
+                    print("p.player vs player.id")
+                    print(p.player, "vs", player.id)
+                    if p.player == player.id:
+                        participant = p
+                        index = i
+                        break
 
-        if participant is None:
-            raise HTTPException(status_code=404, detail="Player is not a participant for this task")
+                if participant is None:
+                    raise HTTPException(status_code=status_code.HTTP_404_NOT_FOUND, detail="Player is not a participant for this task")
+                else:
+                    if task_document and now >= task_document.start_time and now <= task_document.join_until:
+                        # If still within the window time, update status to JOINED
+                        # participant.status = ParticipantStatusEnum.JOINED
+                        # await task_document.update({ "$push": { "participants": { "player": participant.dict() } } })
+                        # await task_document.update({"$set": {f"participants.{index}.status" : ParticipantStatusEnum.JOINED}})
+                        return await task_creator.update_task_participants(task_document, index, participant.player, ParticipantStatusEnum.JOINED)
+                    else:
+                        # If not, update status to NOT_JOINED
+                        return await task_creator.update_task_participants(task_document, index, participant.player, ParticipantStatusEnum.NOT_JOINED)
+            else: 
+                raise HTTPException(status_code=status_code.HTTP_403_FORBIDDEN, detail=f"Task {task_code} has already finished")
+            
         else:
-            await task_document.update(operators=[Pull(TaskDocument.participants, {"player": participant.player})])
+            raise HTTPException(status_code=status_code.HTTP_404_NOT_FOUND, detail=f"Task {task_code} does not exist")
 
-        if task_document and now >= task_document.start_time and now <= task_document.join_until:
-            # If still within the window time, update status to JOINED
-            participant.status = ParticipantStatusEnum.JOINED
-            await task_document.update(operators=[AddToSet(TaskDocument.participants, participant.dict())])
-            
-            return {"message": "Player joined task successfully"}
-        else:
-            # If not, update status to NOT_JOINED
-            participant.status = ParticipantStatusEnum.NOT_JOINED
-            await task_document.update(operators=[AddToSet(TaskDocument.participants, participant.dict())])
-            
-            return {"message": "Player failed to join because the task is elready finished"}
-    raise HTTPException(status_code=403, detail="Event may be gone or already ongoing")
+    raise HTTPException(status_code=status_code.HTTP_403_FORBIDDEN, detail=f"Event {event_code} may not exist or has not started yet")
 
 @router.get("/events/{event_code}/players", response_model=List[PlayerDocument])
 async def get_event_players(event_code: str):
@@ -69,7 +84,7 @@ async def join_event(event_code: str, player_document: JoiningPlayer):
     response = await createPlayer(player)
     return response
 
-@router.get("/events/{event_code}/players/{player_id}/current_task")
+@router.get("/events/{event_code}/players/{player_id}/current_task", response_model=TaskDocument)
 async def get_current_task_of_player(event_code: str, player_id: str):
     now = datetime.now()
     task_document = await TaskDocument.find_one({"event_code": event_code, 

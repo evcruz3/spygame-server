@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, EmailStr
 from typing import List
 from datetime import datetime
 
-class PlayerRoleEnum(Enum):
+class PlayerRoleEnum(str, Enum):
     NOT_SET = "not set"
     ORDINARY = "ordinary"
     SPY = "spy"

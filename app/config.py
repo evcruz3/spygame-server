@@ -4,7 +4,7 @@ from functools import lru_cache
 
 from pydantic import BaseSettings
 
-from .error import PVDError
+from app.error import PVDError
 
 class PVDServerSettings(BaseSettings):
     keycloak_server_url: str
