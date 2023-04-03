@@ -10,6 +10,8 @@ from datetime import datetime
 from app.models.pyObject import PyObjectId
 from app.models.event_player import PlayerDocument
 from typing import List, Optional, Set, Union
+from asyncstdlib.builtins import map as amap, list as alist
+
 
 
 class TaskTypeEnum(str, Enum):
@@ -57,5 +59,12 @@ async def createTask(task_document: TaskDocument) -> TaskDocument:
 
 # Get an existing event document
 async def getTask(id: str) -> TaskDocument:
-    return await TaskDocument.get(id)
+    task_document = await TaskDocument.get(id)
+    task_document.participants = await alist(amap(populate_player, task_document.participants))
 
+    return task_document
+    
+
+async def populate_player(participant: Participant):
+    participant.player = await PlayerDocument.get(PyObjectId(participant.player))
+    return participant

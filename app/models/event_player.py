@@ -9,17 +9,17 @@ from typing import List
 from datetime import datetime
 
 class PlayerRoleEnum(str, Enum):
-    NOT_SET = "not set"
-    ORDINARY = "ordinary"
-    SPY = "spy"
+    NOT_SET     = "not set"
+    ORDINARY    = "ordinary"
+    SPY         = "spy"
 
 # Institution Profile Model Class
 class PlayerBase(BaseModel):
-    event_code: str = Field(..., description="The event code the user is part of")
-    name: str = Field(..., description="The name of the the player")
-    lives_left: int = Field(..., description="Remaining number of lives left")
-    state: str = Field(..., description="State of the player")
-    role: PlayerRoleEnum = Field(..., description="The role of the player in the event")
+    event_code: str             = Field(..., description="The event code the user is part of")
+    name:       str             = Field(..., description="The name of the the player")
+    lives_left: int             = Field(..., description="Remaining number of lives left")
+    state:      str             = Field(..., description="State of the player")
+    role:       PlayerRoleEnum  = Field(..., description="The role of the player in the event")
 
 class PlayerDocument(Document, PlayerBase):
     pass
