@@ -44,6 +44,7 @@ class TaskBase(BaseModel):
     task_code: str = Field(..., description="The task code")
     join_until: datetime = Field(..., description="The datetime the participants must join the task")
     status: TaskStatusEnum = Field(..., description="The current state of the task")
+    allow_kill: bool = Field(..., description="Allow kill, field used by diamond task, default to True")
 
 class TaskDocument(Document, TaskBase):
     pass

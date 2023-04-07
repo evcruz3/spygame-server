@@ -19,8 +19,8 @@ from app.models.game_event import GameEventDocument
 from pytz import utc
 
 CREATE_TASK_INTERVAL = 300 #default is 300 seconds / 5 minutes
-JOIN_UNTIL_TIME_DELTA_IN_MINUTES = 10 #default is 10 minutes
-END_TIME_DELTA_IN_MINUTES = 20 # default is 20 minutes
+JOIN_UNTIL_TIME_DELTA_IN_MINUTES = 5 #default is 10 minutes
+END_TIME_DELTA_IN_MINUTES = 10 # default is 20 minutes
 
 class TaskManager:
     _instance = None
@@ -84,7 +84,7 @@ class TaskManager:
 
             # Choose a random task type
             # task_type = random.choice(list(TaskTypeEnum))
-            task_type = random.choice([TaskTypeEnum.DIAMOND])
+            task_type = random.choice([TaskTypeEnum.DIAMOND, TaskTypeEnum.SPADE])
 
             # Set end time depending on the task type chosen
             end_time = join_until + timedelta(seconds=30) if task_type == TaskTypeEnum.SPADE else now + timedelta(minutes=END_TIME_DELTA_IN_MINUTES)
@@ -111,7 +111,8 @@ class TaskManager:
                 end_time=end_time,
                 task_code=task_code,
                 join_until=join_until,
-                status=TaskStatusEnum.WAITING_FOR_PARTICIPANTS
+                status=TaskStatusEnum.WAITING_FOR_PARTICIPANTS,
+                allow_kill=True if task_type == TaskTypeEnum.DIAMOND else False
             )
             await task.save()
             task = await getTask(task.id)

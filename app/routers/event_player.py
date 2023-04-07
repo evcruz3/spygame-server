@@ -1,5 +1,5 @@
 from http.client import HTTPException
-from app.models.event_task import ParticipantStatusEnum, TaskDocument, TaskStatusEnum, TaskTypeEnum, populate_player
+from app.models.event_task import ParticipantStatusEnum, TaskDocument, TaskStatusEnum, TaskTypeEnum, getTask, populate_player
 from app.models.pyObject import PyObjectId
 from app.mqtt_client import MQTTClient
 from fastapi import APIRouter, Depends, status as status_code, HTTPException, Request
@@ -10,6 +10,8 @@ from app.models.event_player import PlayerDocument, PlayerRoleEnum, createPlayer
 from app.models.game_event import GameEventDocument, JoiningPlayer
 from datetime import datetime
 from asyncstdlib.builtins import map as amap, list as alist
+from datetime import datetime, timedelta
+
 
 
 router = APIRouter(
@@ -122,6 +124,56 @@ async def not_join_task(event_code: str, task_code: str, player: PlayerDocument)
 
     raise HTTPException(status_code=status_code.HTTP_403_FORBIDDEN, detail=f"Event {event_code} may not exist or has not started yet")
 
+@router.post("/events/{event_code}/tasks/{task_code}/no_kill", response_model=TaskDocument)
+async def kill_none_in_task(event_code: str, task_code: str, player: PlayerDocument):
+    task_creator = TaskManager(None)
+    print("No Kill Endpoint has been called by a client")
+    now = datetime.utcnow()
+
+    event_document = await GameEventDocument.find_one({"code" : event_code, "start": {"$lt": now}})
+
+    if event_document is not None:
+
+        task_document = await TaskDocument.find_one({"event_code":event_code, "task_code" : task_code, "type": TaskTypeEnum.DIAMOND})
+
+        if task_document is not None:
+            if task_document.status != TaskStatusEnum.FINISHED:
+                # Check if the given player is a participant for this task
+                killer = None
+                index = -1
+                for (i, p) in enumerate(task_document.participants):
+                    print("p.player vs player.id")
+                    print(p.player, "vs", player.id)
+                    if p.player == player.id and player.role == PlayerRoleEnum.SPY:
+                        killer = p
+                        index = i
+                        break
+
+                # If caller is not part of the task
+                if killer is None:
+                    raise HTTPException(status_code=status_code.HTTP_404_NOT_FOUND, detail="You are not part of this task")
+                else:
+                    await task_document.update({"$set": {"end_time": now + timedelta(seconds=30), "allow_kill": False}})
+                    task_creator.scheduler.add_job(task_creator.end_task, 'date', run_date=task_document.end_time, args=[task_document.id])
+                    task_document = await getTask(task_document.id)
+
+                    mqtt_topic = f"/events/{task_document.event_code}/tasks/{task_document.task_code}/state"
+
+                    message_body = f"The killer/s are merciful this round. Everyone's safe"
+                    message = {'message': message_body, "task_document" : task_document}
+
+                    task_creator.mqtt_client.publish(mqtt_topic, message)
+
+                    return task_document
+            else: 
+                raise HTTPException(status_code=status_code.HTTP_403_FORBIDDEN, detail=f"Task {task_code} has already finished")
+            
+        else:
+            raise HTTPException(status_code=status_code.HTTP_404_NOT_FOUND, detail=f"Task {task_code} does not exist")
+
+    raise HTTPException(status_code=status_code.HTTP_403_FORBIDDEN, detail=f"Event {event_code} may not exist or has not started yet")
+
+
 @router.post("/events/{event_code}/tasks/{task_code}/kill/{player_id}", response_model=TaskDocument)
 async def kill_in_task(event_code: str, task_code: str, player: PlayerDocument, player_id: str):
     task_creator = TaskManager(None)
@@ -142,7 +194,7 @@ async def kill_in_task(event_code: str, task_code: str, player: PlayerDocument, 
                 for (i, p) in enumerate(task_document.participants):
                     print("p.player vs player.id")
                     print(p.player, "vs", player.id)
-                    if p.player == player.id and p.role == PlayerRoleEnum.SPY:
+                    if p.player == player.id and player.role == PlayerRoleEnum.SPY:
                         killer = p
                         index = i
                         break
@@ -162,12 +214,15 @@ async def kill_in_task(event_code: str, task_code: str, player: PlayerDocument, 
                     to_be_killed = None
                     for (i, p) in enumerate(task_document.participants):
                         print("p.player vs player.id")
-                        print(p.player, "vs", player_id)
-                        if p.player == player_id and p.status == ParticipantStatusEnum.JOINED:
+                        print(p.player, p.status, "vs", player_id)
+                        print("p.player == player_id: ", p.player == player_id)
+                        print("p.status == ParticipantStatusEnum.JOINED: ", p.status == ParticipantStatusEnum.JOINED)
+                        if str(p.player) == str(player_id) and p.status == ParticipantStatusEnum.JOINED:
                             to_be_killed = p
                             index = i
                             break
 
+                    print("to be killed: ", to_be_killed)
                     if to_be_killed is None:
                         raise HTTPException(status_code=status_code.HTTP_404_NOT_FOUND, detail="Player you want to kill is not part of the ongoing task")
                     else:
@@ -177,16 +232,19 @@ async def kill_in_task(event_code: str, task_code: str, player: PlayerDocument, 
                         mqtt_topic = f"/events/{task_document.event_code}/players/{player_id}/life"
                         message = {'message': 'You have just been killed by one of the people in the task, you lose 2 lives', "player_document" : document}
                         task_creator.mqtt_client.publish(mqtt_topic, message)
-
+                        
+                        await task_document.update({"$set": {"end_time": now + timedelta(seconds=30), "allow_kill": False}})
+                        task_creator.scheduler.add_job(task_creator.end_task, 'date', run_date=task_document.end_time, args=[task_document.id])
+                        task_document = await getTask(task_document.id)
 
                         mqtt_topic = f"/events/{task_document.event_code}/tasks/{task_document.task_code}/state"
 
-                        message_body = f"{to_be_killed.name} has just been killed. {to_be_killed.name} lost 2 lives"
+                        message_body = f"{document.name} has just been killed. {document.name} lost 2 lives"
                         message = {'message': message_body, "task_document" : task_document}
 
                         task_creator.mqtt_client.publish(mqtt_topic, message)
 
-
+                        return task_document
             else: 
                 raise HTTPException(status_code=status_code.HTTP_403_FORBIDDEN, detail=f"Task {task_code} has already finished")
             
