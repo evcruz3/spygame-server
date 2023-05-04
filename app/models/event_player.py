@@ -21,6 +21,14 @@ class PlayerBase(BaseModel):
     state:      str             = Field(..., description="State of the player")
     role:       PlayerRoleEnum  = Field(..., description="The role of the player in the event")
 
+    # def __hash__(self):
+    #     return hash((self.id, self.event_code, self.name, self.lives_left, self.state, self.role))
+    
+    # def __eq__(self, other):
+    #     if isinstance(other, PlayerBase):
+    #         return (self.id) == (other.id)
+    #     return NotImplemented
+
 class PlayerDocument(Document, PlayerBase):
     pass
 

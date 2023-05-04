@@ -12,7 +12,9 @@ from app.models.event_player import PlayerDocument
 from typing import List, Optional, Set, Union
 from asyncstdlib.builtins import map as amap, list as alist
 
-
+class Vote(BaseModel):
+    player: Union[PlayerDocument, PyObjectId] = Field(..., description="The player who voted")
+    vote: Union[PlayerDocument, PyObjectId] = Field(..., description="The player being voted out")
 
 class TaskTypeEnum(str, Enum):
     # CLUBS = "clubs" # Team Task
@@ -44,7 +46,8 @@ class TaskBase(BaseModel):
     task_code: str = Field(..., description="The task code")
     join_until: datetime = Field(..., description="The datetime the participants must join the task")
     status: TaskStatusEnum = Field(..., description="The current state of the task")
-    allow_kill: bool = Field(..., description="Allow kill, field used by diamond task, default to True")
+    allow_action: bool = Field(..., description="Allow kill, field used by diamond task, default to True")
+    votes: Optional[List[Vote]] = Field(..., description="The votes of the players in the task")
 
 class TaskDocument(Document, TaskBase):
     pass
@@ -62,6 +65,7 @@ async def createTask(task_document: TaskDocument) -> TaskDocument:
 async def getTask(id: str) -> TaskDocument:
     task_document = await TaskDocument.get(id)
     task_document.participants = await alist(amap(populate_player, task_document.participants))
+    task_document.votes = await alist(amap(populate_votes, task_document.votes))
 
     return task_document
     
@@ -69,3 +73,8 @@ async def getTask(id: str) -> TaskDocument:
 async def populate_player(participant: Participant):
     participant.player = await PlayerDocument.get(PyObjectId(participant.player))
     return participant
+
+async def populate_votes(vote: Vote):
+    vote.player = await PlayerDocument.get(vote.player)
+    vote.vote = await PlayerDocument.get(vote.vote)
+    return vote

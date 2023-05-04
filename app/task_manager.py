@@ -1,4 +1,5 @@
 import asyncio
+from collections import defaultdict
 import random
 import string
 from app.models.pyObject import PyObjectId
@@ -18,7 +19,7 @@ from app.models.game_event import GameEventDocument
 # import pytz
 from pytz import utc
 
-CREATE_TASK_INTERVAL = 300 #default is 300 seconds / 5 minutes
+CREATE_TASK_INTERVAL = 30 #default is 300 seconds / 5 minutes
 JOIN_UNTIL_TIME_DELTA_IN_MINUTES = 5 #default is 10 minutes
 END_TIME_DELTA_IN_MINUTES = 10 # default is 20 minutes
 
@@ -83,14 +84,14 @@ class TaskManager:
                 return f"Not enough available players to create task for event {event.code}."
 
             # Choose a random task type
-            # task_type = random.choice(list(TaskTypeEnum))
-            task_type = random.choice([TaskTypeEnum.DIAMOND, TaskTypeEnum.SPADE])
+            task_type = random.choice(list(TaskTypeEnum))
+            # task_type = random.choice([TaskTypeEnum.HEART])
 
             # Set end time depending on the task type chosen
             end_time = join_until + timedelta(seconds=30) if task_type == TaskTypeEnum.SPADE else now + timedelta(minutes=END_TIME_DELTA_IN_MINUTES)
 
-            # Choose 2-6 random players to join the task
-            num_players = random.randint(2, min(6, len(available_players)))
+            # Choose 3-6 random players to join the task
+            num_players = random.randint(3, min(6, max(4, len(available_players))))
             random.shuffle(available_players)
             participant_ids = [
                 {"player": available_players[i].id, "status": ParticipantStatusEnum.WAITING}
@@ -112,7 +113,8 @@ class TaskManager:
                 task_code=task_code,
                 join_until=join_until,
                 status=TaskStatusEnum.WAITING_FOR_PARTICIPANTS,
-                allow_kill=True if task_type == TaskTypeEnum.DIAMOND else False
+                allow_action=True if task_type in [TaskTypeEnum.HEART, TaskTypeEnum.DIAMOND] else False,
+                votes=[]
             )
             await task.save()
             task = await getTask(task.id)
@@ -162,10 +164,10 @@ class TaskManager:
             if task.type == TaskTypeEnum.DIAMOND:
                 message_body = "Killing spree! A killer may kill one of you by the end of round"
             elif task.type == TaskTypeEnum.HEART:
-                message_body = "There is at least one killer among you... Vote one to kill by the end of round"
+                message_body = "There may be a killer among you... This is your time to vote one out to kill by the end of round. The players/s with the most number of votes will lose 2 lives"
             elif task.type == TaskTypeEnum.SPADE:
                 message_body = "Everyone's safe... for now"
-                await task.update({"$set": {f"end_time" : datetime.utcnow() + timedelta(seconds=30)}})
+                await task.update({"$set": {f"end_time" : datetime.utcnow() + timedelta(seconds=15)}})
                 self.scheduler.add_job(self.end_task, 'date', run_date=task.end_time, args=[task.id])
                 task = await getTask(task.id)
 
@@ -177,14 +179,65 @@ class TaskManager:
                     
                     self.mqtt_client.publish(mqtt_topic, message)
                     
-    async def end_task(self, id: any):
-         # Get the updated task document
-        task = await getTask(id)
+    async def end_task(self, id: any, handled: bool = False):
 
-        # If task not manually finished by the player/s
-        if task.status != TaskStatusEnum.FINISHED:
-            await self.update_task_state(task, TaskStatusEnum.FINISHED)
-            # Set task status to FINISHED
+         # Get the updated task document
+        task_document = await getTask(id)
+
+        print("handled?: ", handled)
+        # If task is not yet handled, perform necessary actions
+        if handled == False:
+            if task_document.type == TaskTypeEnum.HEART and task_document.status != TaskStatusEnum.FINISHED:
+                now = datetime.utcnow()
+                vote_counts = defaultdict(int)
+                for vote in task_document.votes:
+                    vote_counts[(vote.vote.id, vote.vote.name)] += 1
+
+                try:
+                    # Find the players with the highest count
+                    max_count = max(vote_counts.values())
+                    most_voted_players = [player for player, count in vote_counts.items() if count == max_count]
+
+                    for (player_id, player_name) in most_voted_players:
+                        # document = await PlayerDocument.find_one({"_id": participant.player})
+                        player = await PlayerDocument.get(player_id)
+                        await player.update({"$inc": {"lives_left": -2}})
+
+                        mqtt_topic = f"/events/{task_document.event_code}/players/{player.id}/life"
+                        message = {'message': 'You have been voted out, you lose 2 lives', "player_document" : player}
+                        self.mqtt_client.publish(mqtt_topic, message)
+
+                    await task_document.update({"$set": {"end_time": now + timedelta(seconds=15), "allow_action": False}})
+                    self.scheduler.add_job(self.end_task, 'date', run_date=task_document.end_time, args=[task_document.id, True])
+                    task_document = await getTask(task_document.id)
+
+                    mqtt_topic = f"/events/{task_document.event_code}/tasks/{task_document.task_code}/state"
+
+                    message_body = f"{', '.join([player_name for (player_id, player_name) in most_voted_players])} gained the most number of votes. They lose 2 lives"
+                    message = {'message': message_body, "task_document" : task_document}
+
+                    self.mqtt_client.publish(mqtt_topic, message)
+                except ValueError:
+                    await task_document.update({"$set": {"end_time": now + timedelta(seconds=15)}})
+                    self.scheduler.add_job(self.end_task, 'date', run_date=task_document.end_time, args=[task_document.id, True])
+                    task_document = await getTask(task_document.id)
+
+                    mqtt_topic = f"/events/{task_document.event_code}/tasks/{task_document.task_code}/state"
+
+                    message_body = f"Everybody abstained. Nobody loses life this round"
+                    message = {'message': message_body, "task_document" : task_document}
+
+                    self.mqtt_client.publish(mqtt_topic, message)
+            else:
+                # If task not manually finished by the player/s
+                if task_document.status != TaskStatusEnum.FINISHED:
+                    await self.update_task_state(task_document, TaskStatusEnum.FINISHED)
+                    # Set task status to FINISHED
+        else:
+            # If task not manually finished by the player/s
+            if task_document.status != TaskStatusEnum.FINISHED:
+                await self.update_task_state(task_document, TaskStatusEnum.FINISHED)
+                # Set task status to FINISHED
 
     async def update_task_participants(self, task: TaskDocument, participant_index: int, player_id: PyObjectId, status: ParticipantStatusEnum):
         player_document = await PlayerDocument.get(player_id)

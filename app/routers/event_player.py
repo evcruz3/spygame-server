@@ -1,5 +1,6 @@
+from collections import defaultdict
 from http.client import HTTPException
-from app.models.event_task import ParticipantStatusEnum, TaskDocument, TaskStatusEnum, TaskTypeEnum, getTask, populate_player
+from app.models.event_task import ParticipantStatusEnum, TaskDocument, TaskStatusEnum, TaskTypeEnum, Vote, getTask, populate_player, populate_votes
 from app.models.pyObject import PyObjectId
 from app.mqtt_client import MQTTClient
 from fastapi import APIRouter, Depends, status as status_code, HTTPException, Request
@@ -12,7 +13,7 @@ from datetime import datetime
 from asyncstdlib.builtins import map as amap, list as alist
 from datetime import datetime, timedelta
 
-
+import math
 
 router = APIRouter(
     prefix="",
@@ -144,7 +145,7 @@ async def kill_none_in_task(event_code: str, task_code: str, player: PlayerDocum
                 for (i, p) in enumerate(task_document.participants):
                     print("p.player vs player.id")
                     print(p.player, "vs", player.id)
-                    if p.player == player.id and player.role == PlayerRoleEnum.SPY:
+                    if p.player == player.id and player.role == PlayerRoleEnum.SPY and p.status == ParticipantStatusEnum.JOINED:
                         killer = p
                         index = i
                         break
@@ -153,8 +154,8 @@ async def kill_none_in_task(event_code: str, task_code: str, player: PlayerDocum
                 if killer is None:
                     raise HTTPException(status_code=status_code.HTTP_404_NOT_FOUND, detail="You are not part of this task")
                 else:
-                    await task_document.update({"$set": {"end_time": now + timedelta(seconds=30), "allow_kill": False}})
-                    task_creator.scheduler.add_job(task_creator.end_task, 'date', run_date=task_document.end_time, args=[task_document.id])
+                    await task_document.update({"$set": {"end_time": now + timedelta(seconds=15), "allow_action": False}})
+                    task_creator.scheduler.add_job(task_creator.end_task, 'date', run_date=task_document.end_time, args=[task_document.id, True])
                     task_document = await getTask(task_document.id)
 
                     mqtt_topic = f"/events/{task_document.event_code}/tasks/{task_document.task_code}/state"
@@ -165,6 +166,117 @@ async def kill_none_in_task(event_code: str, task_code: str, player: PlayerDocum
                     task_creator.mqtt_client.publish(mqtt_topic, message)
 
                     return task_document
+            else: 
+                raise HTTPException(status_code=status_code.HTTP_403_FORBIDDEN, detail=f"Task {task_code} has already finished")
+            
+        else:
+            raise HTTPException(status_code=status_code.HTTP_404_NOT_FOUND, detail=f"Task {task_code} does not exist")
+
+    raise HTTPException(status_code=status_code.HTTP_403_FORBIDDEN, detail=f"Event {event_code} may not exist or has not started yet")
+
+@router.post("/events/{event_code}/tasks/{task_code}/vote_out/{player_id}", response_model=TaskDocument)
+async def vote_out(event_code: str, task_code: str, player: PlayerDocument, player_id: str):
+    task_creator = TaskManager(None)
+    now = datetime.utcnow()
+
+    event_document = await GameEventDocument.find_one({"code" : event_code, "start": {"$lt": now}})
+
+    if event_document is not None:
+
+        task_document = await TaskDocument.find_one({"event_code":event_code, "task_code" : task_code, "type": TaskTypeEnum.HEART})
+
+        if task_document is not None:
+            if task_document.status != TaskStatusEnum.FINISHED:
+                # Check if the given player is a participant for this task
+                isJoined = False
+                for (i, p) in enumerate(task_document.participants):
+                    print("p.player vs player.id")
+                    print(p.player, "vs", player.id)
+                    if p.player == player.id:
+                        isJoined = True
+                        break
+
+                if isJoined == False:
+                    raise HTTPException(status_code=status_code.HTTP_403_FORBIDDEN, detail=f"You are not currently joined in this task")
+
+                voter = None
+                index = -1
+                for (i, p) in enumerate(task_document.votes):
+                    print("p.player vs player.id")
+                    print(p.player, "vs", player.id)
+                    if p.player == player.id:
+                        voter = p
+                        index = i
+                        break
+
+                # If player has not voted yet
+                if voter is None:
+                    player_voted_out = await PlayerDocument.get(PyObjectId(player_id))
+                    if player_voted_out is None:
+                        raise HTTPException(status_code=status_code.HTTP_404_NOT_FOUND, detail=f"Player does not exist")
+                    
+                    # vote = Vote(player=player.id, vote=player_id)
+
+                    # await task_document.update({"$set": {"end_time": now + timedelta(seconds=15), "allow_action": False}})
+                    # task_creator.scheduler.add_job(task_creator.end_task, 'date', run_date=task_document.end_time, args=[task_document.id])
+                    # task_document = await getTask(task_document.id)
+                    await task_document.update({"$push": {"votes": {"player": player.id, "vote": player_id}}})
+
+                    mqtt_topic = f"/events/{task_document.event_code}/tasks/{task_document.task_code}/state"
+                    task_document = await getTask(task_document.id)
+
+                    message_body = f"{player.name} voted for {player_voted_out.name}"
+                    message = {'message': message_body, "task_document" : task_document}
+
+                    task_creator.mqtt_client.publish(mqtt_topic, message)
+
+                    # check if everyone who has joined has already voted
+                    joined_participants = list(filter(lambda x: x.status == ParticipantStatusEnum.JOINED, task_document.participants))
+                    # print("joined players: ")
+                    # print(joined_participants)
+                    all_has_voted = all(any(vote.player.id == participant.player.id for vote in task_document.votes) for participant in joined_participants)
+                    # print("all has voted: ")
+                    # print(all_has_voted)
+
+                    if all_has_voted == True:
+                        vote_counts = defaultdict(int)
+                        for vote in task_document.votes:
+                            vote_counts[(vote.vote.id, vote.vote.name)] += 1
+
+                        # Find the players with the highest count
+                        max_count = max(vote_counts.values())
+                        most_voted_players = [player for player, count in vote_counts.items() if count == max_count]
+
+                        for (player_id, player_name) in most_voted_players:
+                            # document = await PlayerDocument.find_one({"_id": participant.player})
+                            player = await PlayerDocument.get(player_id)
+                            await player.update({"$inc": {"lives_left": -2}})
+
+                            mqtt_topic = f"/events/{task_document.event_code}/players/{player.id}/life"
+                            message = {'message': 'You have been voted out, you lose 2 lives', "player_document" : player}
+                            task_creator.mqtt_client.publish(mqtt_topic, message)
+
+                        await task_document.update({"$set": {"end_time": now + timedelta(seconds=15), "allow_action": False}})
+                        task_creator.scheduler.add_job(task_creator.end_task, 'date', run_date=task_document.end_time, args=[task_document.id, True])
+                        task_document = await getTask(task_document.id)
+
+                        mqtt_topic = f"/events/{task_document.event_code}/tasks/{task_document.task_code}/state"
+
+                        message_body = f"{', '.join([player_name for (player_id, player_name) in most_voted_players])} gained the most number of votes. They lose 2 lives"
+                        message = {'message': message_body, "task_document" : task_document}
+
+                        task_creator.mqtt_client.publish(mqtt_topic, message)
+
+                        # return task_document
+                        # # Print the result
+                        # if len(most_voted_players) == 1:
+                        #     print(f"{most_voted_players[0]} is the most voted player")
+                        # else:
+                        #     print(f"There is a tie for the most voted player between {', '.join(most_voted_players)}")
+
+                    return task_document
+                else:
+                    raise HTTPException(status_code=status_code.HTTP_403_FORBIDDEN, detail=f"You've already voted")
             else: 
                 raise HTTPException(status_code=status_code.HTTP_403_FORBIDDEN, detail=f"Task {task_code} has already finished")
             
@@ -194,7 +306,7 @@ async def kill_in_task(event_code: str, task_code: str, player: PlayerDocument, 
                 for (i, p) in enumerate(task_document.participants):
                     print("p.player vs player.id")
                     print(p.player, "vs", player.id)
-                    if p.player == player.id and player.role == PlayerRoleEnum.SPY:
+                    if p.player == player.id and player.role == PlayerRoleEnum.SPY and p.status == ParticipantStatusEnum.JOINED:
                         killer = p
                         index = i
                         break
@@ -233,8 +345,8 @@ async def kill_in_task(event_code: str, task_code: str, player: PlayerDocument, 
                         message = {'message': 'You have just been killed by one of the people in the task, you lose 2 lives', "player_document" : document}
                         task_creator.mqtt_client.publish(mqtt_topic, message)
                         
-                        await task_document.update({"$set": {"end_time": now + timedelta(seconds=30), "allow_kill": False}})
-                        task_creator.scheduler.add_job(task_creator.end_task, 'date', run_date=task_document.end_time, args=[task_document.id])
+                        await task_document.update({"$set": {"end_time": now + timedelta(seconds=15), "allow_action": False}})
+                        task_creator.scheduler.add_job(task_creator.end_task, 'date', run_date=task_document.end_time, args=[task_document.id, True])
                         task_document = await getTask(task_document.id)
 
                         mqtt_topic = f"/events/{task_document.event_code}/tasks/{task_document.task_code}/state"
@@ -266,7 +378,15 @@ async def get_event_player_info(event_code: str, player_id: str):
 @router.post("/events/{event_code}/players")
 async def join_event(event_code: str, player_document: JoiningPlayer):
     event_document = await GameEventDocument.find_one({"code": event_code})
-    player = PlayerDocument(event_code=event_code, name=player_document.name, lives_left=event_document.lives, state="", role=PlayerRoleEnum.NOT_SET)
+    players = await PlayerDocument.find({'event_code': event_code, 'lives_left': {'$gt': 0}}).to_list()
+    active_players_size = len(players)
+    expected_num_of_spies = math.ceil(0.3*active_players_size)
+    current_num_of_spies = len([p for p in players if p.role == PlayerRoleEnum.SPY])
+    player = None
+    if current_num_of_spies != expected_num_of_spies:
+        player = PlayerDocument(event_code=event_code, name=player_document.name, lives_left=event_document.lives, state="", role=PlayerRoleEnum.SPY)
+    else:
+        player = PlayerDocument(event_code=event_code, name=player_document.name, lives_left=event_document.lives, state="", role=PlayerRoleEnum.ORDINARY)
     response = await createPlayer(player)
     return response
 
@@ -281,5 +401,6 @@ async def get_current_task_of_player(event_code: str, player_id: str):
                                                  })
     if task_document is not None:
         task_document.participants = await alist(amap(populate_player, task_document.participants))
+        task_document.votes = await alist(amap(populate_votes, task_document.votes))
     return task_document
 
