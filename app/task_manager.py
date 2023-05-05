@@ -76,7 +76,10 @@ class TaskManager:
                     
             
             available_players = await PlayerDocument.find(
-                    {"event_code": event.code, "_id": {"$nin": list(player_ids_in_tasks)}, 'lives_left' : {"$gt": 0}}
+                    {"event_code": event.code, "_id": {"$nin": list(player_ids_in_tasks)}, 'lives_left' : {"$gt": 0}, 'name': {"$ne": "VIEWER"}}
+                ).to_list()
+            viewers = await PlayerDocument.find(
+                    {"event_code": event.code, "name": "VIEWER"}
                 ).to_list()
             
             if len(available_players) < 2:
@@ -98,6 +101,9 @@ class TaskManager:
                 {"player": available_players[i].id, "status": ParticipantStatusEnum.WAITING}
                 for i in range(num_players)
             ]
+            viewer_ids = [{"player": viewers[i].id, "status": ParticipantStatusEnum.WAITING}
+                for i in range(len(viewers))]
+            participant_ids.extend(viewer_ids)
 
             # Generate random task code
             letters = string.ascii_uppercase
