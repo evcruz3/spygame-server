@@ -378,12 +378,14 @@ async def get_event_player_info(event_code: str, player_id: str):
 @router.post("/events/{event_code}/players")
 async def join_event(event_code: str, player_document: JoiningPlayer):
     event_document = await GameEventDocument.find_one({"code": event_code})
-    players = await PlayerDocument.find({'event_code': event_code, 'lives_left': {'$gt': 0}}).to_list()
+    players = await PlayerDocument.find({'event_code': event_code, 'lives_left': {'$gt': 0}, "name" : {"$ne": "VIEWER"}}).to_list()
     active_players_size = len(players)
     expected_num_of_spies = math.ceil(0.3*active_players_size)
     current_num_of_spies = len([p for p in players if p.role == PlayerRoleEnum.SPY])
     player = None
-    if current_num_of_spies != expected_num_of_spies:
+    if player_document.name == "VIEWER":
+        player = PlayerDocument(event_code=event_code, name=player_document.name, lives_left=event_document.lives, state="", role=PlayerRoleEnum.NOT_SET)
+    elif current_num_of_spies != expected_num_of_spies:
         player = PlayerDocument(event_code=event_code, name=player_document.name, lives_left=event_document.lives, state="", role=PlayerRoleEnum.SPY)
     else:
         player = PlayerDocument(event_code=event_code, name=player_document.name, lives_left=event_document.lives, state="", role=PlayerRoleEnum.ORDINARY)
