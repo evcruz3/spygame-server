@@ -91,7 +91,8 @@ class TaskManager:
             end_time = join_until + timedelta(seconds=30) if task_type == TaskTypeEnum.SPADE else now + timedelta(minutes=END_TIME_DELTA_IN_MINUTES)
 
             # Choose 3-6 random players to join the task
-            num_players = random.randint(3, min(6, max(4, len(available_players))))
+            limit = max(3, len(available_players))
+            num_players = limit if limit == 3 else random.randint(3, min(6, limit))
             random.shuffle(available_players)
             participant_ids = [
                 {"player": available_players[i].id, "status": ParticipantStatusEnum.WAITING}
@@ -132,7 +133,9 @@ class TaskManager:
 
     async def announce_task(self, task: TaskDocument):
         mqtt_topic = f"/events/{task.event_code}/tasks"
-        message = {"message" : "A new task is about to start", "task_document" : task}
+        leaders = task.participants[::2]
+        # print(f"leaders: {leaders[0].player.name}, {leaders[1].player.name}")
+        message = {"message" : f"A new task is about to begin\n{leaders[0].player.name}, {leaders[1].player.name} have the task code", "task_document" : task}
         self.mqtt_client.publish(mqtt_topic, message)
 
     async def start_task(self, id: any):
