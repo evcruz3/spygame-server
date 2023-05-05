@@ -20,8 +20,8 @@ from app.models.game_event import GameEventDocument
 from pytz import utc
 
 CREATE_TASK_INTERVAL = 30 #default is 300 seconds / 5 minutes
-JOIN_UNTIL_TIME_DELTA_IN_MINUTES = 5 #default is 10 minutes
-END_TIME_DELTA_IN_MINUTES = 5 # default is 20 minutes
+JOIN_UNTIL_TIME_DELTA_IN_MINUTES = 3 #default is 10 minutes
+END_TIME_DELTA_IN_MINUTES = 3 # default is 20 minutes
 
 class TaskManager:
     _instance = None
