@@ -133,7 +133,7 @@ class TaskManager:
             # Schedule penalty to those who wont be able to join and then start the task
             self.scheduler.add_job(self.start_task, 'date', run_date=task.join_until, args=[task.id])
             # End the task at the specified datetime
-            self.scheduler.add_job(self.end_task, 'date', run_date=task.end_time, args=[task.id])
+            # self.scheduler.add_job(self.end_task, 'date', run_date=task.end_time, args=[task.id])
 
             return task
 
