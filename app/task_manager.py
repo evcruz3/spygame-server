@@ -20,7 +20,7 @@ from app.models.game_event import GameEventDocument
 from pytz import utc
 
 CREATE_TASK_INTERVAL = 15 #default is 300 seconds / 5 minutes
-JOIN_UNTIL_TIME_DELTA_IN_MINUTES = 2 #default is 10 minutes
+JOIN_UNTIL_TIME_DELTA_IN_MINUTES = 3 #default is 10 minutes
 END_TIME_DELTA_IN_MINUTES = 3 # default is 20 minutes
 
 class TaskManager:
@@ -91,7 +91,7 @@ class TaskManager:
             # task_type = random.choice([TaskTypeEnum.HEART])
 
             # Set end time depending on the task type chosen
-            end_time = join_until + (timedelta(seconds=30) if task_type == TaskTypeEnum.SPADE else (now + timedelta(minutes=END_TIME_DELTA_IN_MINUTES)))
+            end_time = join_until + timedelta(seconds=30) if task_type == TaskTypeEnum.SPADE else (now + timedelta(minutes=END_TIME_DELTA_IN_MINUTES))
 
             # Choose 3-6 random players to join the task
             limit = max(3, len(available_players))
